@@ -71,9 +71,46 @@ class RequestMatchersTest {
     }
 
     @Test
+    void testQueryParam_noValue() {
+        URI uri = URI.create("local.host?greeting");
+        assertThatCode(() -> RequestMatchers.queryParam("greeting", "").match(new MockClientRequestContext(uri)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void testQueryParam_noValueWithEqualsSign() {
+        URI uri = URI.create("local.host?greeting=");
+        assertThatCode(() -> RequestMatchers.queryParam("greeting", "").match(new MockClientRequestContext(uri)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void testQueryParam_equalsSignInValue() {
+        URI uri = URI.create("local.host?greeting=hello=salutations&sendoff=farewell");
+        assertThatCode(() -> RequestMatchers.queryParam("greeting", "hello=salutations").match(new MockClientRequestContext(uri)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     void testQueryParam_paramMissing() {
         URI uri = URI.create("local.host?greeting=hello&greeting=salutations");
         assertThatThrownBy(() -> RequestMatchers.queryParam("sendoff", "goodbye", "farewell").match(new MockClientRequestContext(uri)))
+                .isInstanceOf(AssertionError.class)
+                .hasMessage("Expected QueryParam <sendoff> to exist but was null");
+    }
+
+    @Test
+    void testQueryParam_paramMissing_noQuerySegment() {
+        URI uri = URI.create("local.host");
+        assertThatThrownBy(() -> RequestMatchers.queryParam("sendoff", "goodbye").match(new MockClientRequestContext(uri)))
+                .isInstanceOf(AssertionError.class)
+                .hasMessage("Expected QueryParam <sendoff> to exist but was null");
+    }
+
+    @Test
+    void testQueryParam_paramMissing_emptyQuerySegment() {
+        URI uri = URI.create("local.host?");
+        assertThatThrownBy(() -> RequestMatchers.queryParam("sendoff", "goodbye").match(new MockClientRequestContext(uri)))
                 .isInstanceOf(AssertionError.class)
                 .hasMessage("Expected QueryParam <sendoff> to exist but was null");
     }
@@ -103,12 +140,71 @@ class RequestMatchersTest {
     }
 
     @Test
+    void testQueryParamDoesNotExist() {
+        URI uri = URI.create("local.host");
+        assertThatCode(() -> RequestMatchers.queryParamDoesNotExist("greeting").match(new MockClientRequestContext(uri)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void testQueryParamDoesNotExist_exists() {
+        URI uri = URI.create("local.host?greeting=hello");
+        assertThatThrownBy(() -> RequestMatchers.queryParamDoesNotExist("greeting").match(new MockClientRequestContext(uri)))
+                .isInstanceOf(AssertionError.class)
+                .hasMessage("Expected QueryParam <greeting> to not exist, but it exists with values: [hello]");
+    }
+
+    @Test
+    void testQueryParamCount() {
+        URI uri = URI.create("local.host?greeting=hello&sendoff=farewell");
+        assertThatCode(() -> RequestMatchers.queryParamCount(2).match(new MockClientRequestContext(uri)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void testQueryParamCount_noQuerySegment() {
+        URI uri = URI.create("local.host");
+        assertThatCode(() -> RequestMatchers.queryParamCount(0).match(new MockClientRequestContext(uri)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void testQueryParamCount_emptyQuerySegment() {
+        URI uri = URI.create("local.host?");
+        assertThatCode(() -> RequestMatchers.queryParamCount(0).match(new MockClientRequestContext(uri)))
+                .doesNotThrowAnyException();
+    }
+
+
+    @Test
+    void testQueryParamCount_repeatedQueryParam() {
+        URI uri = URI.create("local.host?greeting=hello&greeting=salutations");
+        assertThatCode(() -> RequestMatchers.queryParamCount(1).match(new MockClientRequestContext(uri)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void testQueryParamCount_countMissmatch() {
+        URI uri = URI.create("local.host?greeting=hello&sendoff=farewell");
+        assertThatThrownBy(() -> RequestMatchers.queryParamCount(1).match(new MockClientRequestContext(uri)))
+                .isInstanceOf(AssertionError.class)
+                .hasMessage("Expected %s QueryParams but found %s: %s", 1, 2, "[sendoff, greeting]");
+    }
+
+    @Test
     void testHeader() {
         MultivaluedMap<String, String> headers = new MultivaluedHashMap<>();
         headers.put(ACCEPT, List.of(APPLICATION_JSON, APPLICATION_XML));
 
         assertThatCode(() -> RequestMatchers.header(ACCEPT, APPLICATION_JSON, APPLICATION_XML).match(new MockClientRequestContext(headers)))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void testHeader_headerMissing() {
+        assertThatThrownBy(() -> RequestMatchers.header(ACCEPT, APPLICATION_JSON).match(new MockClientRequestContext(new MultivaluedHashMap<>())))
+                .isInstanceOf(AssertionError.class)
+                .hasMessage("Expected header <%s> to exist but was null", ACCEPT);
     }
 
     @Test

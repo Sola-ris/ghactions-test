@@ -1,6 +1,7 @@
 package io.github.solaris.jaxrs.client.test.request;
 
 import static io.github.solaris.jaxrs.client.test.internal.Assertions.assertEqual;
+import static io.github.solaris.jaxrs.client.test.internal.Assertions.assertTrue;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.net.URI;
@@ -8,6 +9,7 @@ import java.net.URLDecoder;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.xml.xpath.XPathExpressionException;
 
@@ -18,6 +20,8 @@ import jakarta.ws.rs.core.MultivaluedMap;
  * Static factory methods for the built-in {@link RequestMatcher} implementations.
  */
 public final class RequestMatchers {
+    private static final MultivaluedMap<String, String> EMPTY_QUERY_PARAMS = new MultivaluedHashMap<>();
+
     private RequestMatchers() {}
 
     /**
@@ -67,10 +71,43 @@ public final class RequestMatchers {
     public static RequestMatcher queryParam(String name, String... expectedValues) {
         return request -> {
             MultivaluedMap<String, String> queryParams = getQueryParams(request.getUri());
-            assertCount("QueryParam", name, queryParams, expectedValues.length);
+
+            String message = "Expected QueryParam <" + name + ">";
+            assertTrue(message + " to exist but was null", queryParams.get(name) != null);
+            assertTrue(message + " to have at least <" + expectedValues.length + "> values but found " + queryParams.get(name),
+                    expectedValues.length <= queryParams.get(name).size());
 
             for (int i = 0; i < expectedValues.length; i++) {
                 assertEqual("QueryParam [name=" + name + ", position=" + i + "]", expectedValues[i], queryParams.get(name).get(i));
+            }
+        };
+    }
+
+    /**
+     * Assert that the given query parameter is not present in the request URI.
+     *
+     * @param name The name of query parameter
+     */
+    public static RequestMatcher queryParamDoesNotExist(String name) {
+        return request -> {
+            List<String> queryParamsValues = getQueryParams(request.getUri()).get(name);
+            if (queryParamsValues != null) {
+                throw new AssertionError("Expected QueryParam <" + name + "> to not exist, but it exists with values: " + queryParamsValues);
+            }
+        };
+    }
+
+    /**
+     * Assert that the given number of query parameters are present in the request URI.
+     *
+     * @param expectedCount The expected number of query parameters
+     */
+    public static RequestMatcher queryParamCount(int expectedCount) {
+        return request -> {
+            Set<String> queryParamNames = getQueryParams(request.getUri()).keySet();
+            int actualSize = queryParamNames.size();
+            if (expectedCount != actualSize) {
+                throw new AssertionError("Expected %s QueryParams but found %s: %s".formatted(expectedCount, actualSize, queryParamNames));
             }
         };
     }
@@ -86,9 +123,13 @@ public final class RequestMatchers {
      */
     public static RequestMatcher header(String name, String... expectedValues) {
         return request -> {
-            assertCount("header", name, request.getStringHeaders(), expectedValues.length);
-
             List<String> actualValues = request.getStringHeaders().get(name);
+
+            String message = "Expected header <" + name + ">";
+            assertTrue(message + " to exist but was null", actualValues != null);
+            assertTrue(message + " to have at least <" + expectedValues.length + "> values but found " + actualValues,
+                    expectedValues.length <= actualValues.size());
+
             for (int i = 0; i < expectedValues.length; i++) {
                 assertEqual("Request header [name=" + name + ", position=" + i + "]", expectedValues[i], actualValues.get(i));
             }
@@ -119,7 +160,7 @@ public final class RequestMatchers {
     /**
      * Access to request body matchers using a <a href="https://github.com/jayway/JsonPath">JsonPath</a> expression
      * to inspect a specific subset of the body.
-     * <p>The JSON path expression can be parameterized using using formatting specifiers as defined in{@link String#format(String, Object...)}</p>
+     * <p>The JSON path expression can be parameterized using formatting specifiers as defined in{@link String#format(String, Object...)}</p>
      *
      * @param expression The JSON path expression, possibly parameterized
      * @param args       Arguments to parameterize the JSON path expression with
@@ -131,7 +172,7 @@ public final class RequestMatchers {
     /**
      * Access to request body matchers using an {@link javax.xml.xpath.XPath XPath} expression
      * to inspect a specific subset of the body.
-     * <p>The XPath path expression can be parameterized using using formatting specifiers as defined in{@link String#format(String, Object...)}</p>
+     * <p>The XPath path expression can be parameterized using formatting specifiers as defined in{@link String#format(String, Object...)}</p>
      *
      * @param expression The XPath path expression, possibly parameterized
      * @param args       Arguments to parameterize the XPath path expression with
@@ -144,7 +185,7 @@ public final class RequestMatchers {
     /**
      * Access to request body matchers using a <b>namespace-aware</b> {@link javax.xml.xpath.XPath XPath} expression
      * to inspect a specific subset of the body.
-     * <p>The XPath path expression can be parameterized using using formatting specifiers as defined in{@link String#format(String, Object...)}</p>
+     * <p>The XPath path expression can be parameterized using formatting specifiers as defined in{@link String#format(String, Object...)}</p>
      *
      * @param expression The XPath path expression, possibly parameterized
      * @param namespaces The namespaces referenced in the XPath expression
@@ -156,20 +197,13 @@ public final class RequestMatchers {
     }
 
     private static MultivaluedMap<String, String> getQueryParams(URI uri) {
+        if (uri.getQuery() == null) {
+            return EMPTY_QUERY_PARAMS;
+        }
         return Arrays.stream(uri.getQuery().split("&"))
                 .map(query -> URLDecoder.decode(query, UTF_8))
-                .map(query -> query.split("="))
-                .collect(MultivaluedHashMap::new, (map, query) -> map.add(query[0], query[1]), MultivaluedMap::putAll);
-    }
-
-    private static void assertCount(String valueType, String name, MultivaluedMap<String, String> map, int count) {
-        List<String> values = map.get(name);
-        String message = "Expected " + valueType + " <" + name + ">";
-        if (values == null) {
-            throw new AssertionError(message + " to exist but was null");
-        }
-        if (count > values.size()) {
-            throw new AssertionError(message + " to have at least <" + count + "> values but found " + values);
-        }
+                .filter(query -> !"".equals(query))
+                .map(query -> query.split("=", 2))
+                .collect(MultivaluedHashMap::new, (map, query) -> map.add(query[0], query.length == 2 ? query[1] : ""), MultivaluedMap::putAll);
     }
 }
